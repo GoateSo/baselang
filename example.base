@@ -1,0 +1,40 @@
+void lin_fib {integer n} [
+    integer a.
+    integer b.
+    integer temp.
+    a = 0.
+    b = 1.
+    while n > 0 [
+        write << a.
+        write << "\n".
+        temp = b.
+        b = a + b.
+        a = temp. 
+        n--.
+    ]
+]
+
+integer fact {integer n} [
+    if n <= 1 [
+        return n.
+    ] else [
+        return n * fact(n-1).
+    ]
+]
+
+void main {} [
+    integer num.
+    write << "enter a number: ".
+    read >> num.
+    lin_fib(num).
+
+    write << "\n".
+    write << "enter another number: ".
+    read >> num.
+    write << num.
+    write << "! = ".
+    write << fact(num).
+]
+
+
+

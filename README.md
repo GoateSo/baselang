@@ -26,14 +26,16 @@ But deviates from the original specs in some cases:
 - spacing in the generated code isn't exactly the same -- didnt have the heart to wholly copy the provided codegen helper class.
 
 
-## To be done
+## To be completed
 
 - adding proper code generation for tuples (this was not a requirement for the course)
 - making a proper REPL (most likely an AST walking interpreter) instead of having a faux loop that just serves as a frontend for compilation
 - fixing any bugs that arise. Although I have tested against my existing code, those tests certainly aren't thorough enough to catch all bugs present.
+- optimizing the code produced by the compiler
 - extending the language with additional features (from languages like scala or lua) like
-    - a standard library
+    - arrays
     - additional ctrl structures (break, continue, for loops, switch/match exprs/stmts)
     - more expressivity for functions (taking tuple params/ returning tuples, fwd decls)
     - type inference 
     - allowing nested / first class functions
+    - a standard library

@@ -35,6 +35,6 @@ metals.sbt
 # Testing files
 *.worksheet.sc
 
-# Output and inputs
-*.base
-*.s
+# test Output and inputs
+test.base
+test.s
