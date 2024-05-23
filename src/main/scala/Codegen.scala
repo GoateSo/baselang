@@ -41,9 +41,9 @@ def genFundecl(
     // prologue
     genPush(RA),
     genPush(FP),
-    generate("addu", FP, SP, "8"),
+    genInst("addu", FP, SP, "8"),
     if (body._1.nonEmpty) then
-      generateComment(
+      genWithComment(
         "subu",
         "allocating space for locals",
         SP,
@@ -56,15 +56,15 @@ def genFundecl(
     // epilogue
     genLabel(s"${fname}_Exit"),
     genIndexed("lw", RA, FP, 0, s"load return addr for $fname"),
-    generateComment("move", "old sp", T0, FP),
+    genWithComment("move", "old sp", T0, FP),
     genIndexed("lw", FP, FP, -4, s"restore old fp for $fname"),
-    generateComment("move", "restore sp", SP, T0),
+    genWithComment("move", "restore sp", SP, T0),
     if (fname != "main")
-      generateComment("jr", "return", RA)
+      genWithComment("jr", "return", RA)
     else
       combine(
-        generateComment("li", "exit", V0, "10"),
-        generateComment("syscall", "exit")
+        genWithComment("li", "exit", V0, "10"),
+        genWithComment("syscall", "exit")
       )
   )
 
@@ -77,7 +77,7 @@ private inline def incrStmt(inline loc: Location, inline amt: Int) =
     loadAddr(loc),
     genPop(T0),
     genIndexed("lw", T1, T0, 0),
-    generate("addi", T1, T1, s"$amt"),
+    genInst("addi", T1, T1, s"$amt"),
     genIndexed("sw", T1, T0, 0)
   )
 
@@ -90,8 +90,8 @@ def codeGen(stmt: Stmt, fname: String): String =
       val temp = combine(
         codeGen(cond),
         genPop(T0),
-        generate("li", T1, "0"),
-        generateComment("beq", "if jump", T0, T1, l1),
+        genInst("li", T1, "0"),
+        genWithComment("beq", "if jump", T0, T1, l1),
         codeGen(thenStmt, fname)
       )
       // add on else case if it exists
@@ -100,7 +100,7 @@ def codeGen(stmt: Stmt, fname: String): String =
         case Some(x) =>
           val endLabel = nextLabel() // use l1 as else label
           combine(
-            generate("j", endLabel),
+            genInst("j", endLabel),
             genLabel(l1),
             codeGen(x, fname),
             genLabel(endLabel)
@@ -115,12 +115,12 @@ def codeGen(stmt: Stmt, fname: String): String =
         codeGen(cond),
         genPop(T0),
         // jmp if false
-        generate("li", T1, "0"),
-        generate("beq", T0, T1, lend),
+        genInst("li", T1, "0"),
+        genInst("beq", T0, T1, lend),
         // body
         codeGen(body, fname),
         // jmp back to start
-        generate("j", lstart),
+        genInst("j", lstart),
         genLabel(lend, "while loop end label")
       )
     case Return(value) =>
@@ -128,19 +128,19 @@ def codeGen(stmt: Stmt, fname: String): String =
         if value.isDefined
         then combine(codeGen(value.get), genPop(V0))
         else ""
-      combine(getRetVal, generate("j", s"${fname}_Exit"))
+      combine(getRetVal, genInst("j", s"${fname}_Exit"))
     case ExprStmt(expr) => combine(codeGen(expr), genPop(T0))
     case Write(expr) =>
       val code = if expr.myType == VType.Str then "4" else "1"
       combine(
         codeGen(expr),
         genPop(A0),
-        generate("li", V0, code),
-        generate("syscall")
+        genInst("li", V0, code),
+        genInst("syscall")
       )
     case Read(loc) => combine(
-        generate("li", V0, "5"),
-        generate("syscall"),
+        genInst("li", V0, "5"),
+        genInst("syscall"),
         loadAddr(loc),
         genPop(T0),
         genIndexed("sw", V0, T0, 0)
@@ -152,8 +152,8 @@ def codeGen(stmt: Stmt, fname: String): String =
 def codeGen(expr: Expr): String =
   import Expr.*
   expr match
-    case IntLit(i, value) => combine(generate("li", T0, s"$value"), genPush(T0))
-    case LogiLit(i, value)      => codeGen(IntLit(i, if value then 1 else 0))
+    case IntLit(i, value)  => combine(genInst("li", T0, s"$value"), genPush(T0))
+    case LogiLit(i, value) => codeGen(IntLit(i, if value then 1 else 0))
     case StringLit(i, value)    => genStr(value)
     case Loc(i, loc)            => codeGen(loc)
     case Call(i, name, args)    => genCall(name.name, args)
@@ -164,24 +164,24 @@ def codeGen(expr: Expr): String =
 def genUnop(op: UnaryOp, rhs: String): String =
   val opStr = op match
     case UnaryOp.Neg =>
-      combine(generate("li", T1, "0"), generate("subu", T0, T1, T0))
+      combine(genInst("li", T1, "0"), genInst("subu", T0, T1, T0))
     case UnaryOp.Not =>
-      combine(generate("li", T1, "1"), generate("subu", T0, T1, T0))
+      combine(genInst("li", T1, "1"), genInst("subu", T0, T1, T0))
   combine(rhs, genPop(T0), opStr)
 
 def genBinaryOp(op: BinaryOp, lhs: String, rhs: Expr): String =
   import BinaryOp.*
   val eagerOp: Map[BinaryOp, String] = Map( // map for eager operations
-    Add -> generate("add", T0, T0, T1),
-    Sub -> generate("sub", T0, T0, T1),
-    Mul -> combine(generate("mult", T0, T1), generate("mflo", T0)),
-    Div -> combine(generate("div", T0, T1), generate("mflo", T0)),
-    Eq -> generate("seq", T0, T0, T1),
-    Neq -> generate("sne", T0, T0, T1),
-    Lt -> generate("slt", T0, T0, T1),
-    Gt -> generate("sgt", T0, T0, T1),
-    Le -> generate("sle", T0, T0, T1),
-    Ge -> generate("sge", T0, T0, T1)
+    Add -> genInst("add", T0, T0, T1),
+    Sub -> genInst("sub", T0, T0, T1),
+    Mul -> combine(genInst("mult", T0, T1), genInst("mflo", T0)),
+    Div -> combine(genInst("div", T0, T1), genInst("mflo", T0)),
+    Eq -> genInst("seq", T0, T0, T1),
+    Neq -> genInst("sne", T0, T0, T1),
+    Lt -> genInst("slt", T0, T0, T1),
+    Gt -> genInst("sgt", T0, T0, T1),
+    Le -> genInst("sle", T0, T0, T1),
+    Ge -> genInst("sge", T0, T0, T1)
   )
   val shortVal = Map(And -> "0", Or -> "1")
   op match
@@ -199,8 +199,8 @@ def genBinaryOp(op: BinaryOp, lhs: String, rhs: Expr): String =
       combine(
         lhs, // eval lhs case
         genPop(T0),
-        generate("li", T1, shortVal(op)), // short circuit check
-        generate("beq", T0, T1, lab),
+        genInst("li", T1, shortVal(op)), // short circuit check
+        genInst("beq", T0, T1, lab),
         codeGen(rhs), // push eval rhs caes
         genPop(T0),
         genLabel(lab), // short circuit label
@@ -214,13 +214,7 @@ def genAssign(lval: Location, rval: Expr): String = combine(
   genPop(T0),
   genPop(T1),
   // store T1 into T0 (RHS into LHS)
-  genIndexed(
-    "sw",
-    T1,
-    T0,
-    0,
-    s"assigning ${mkString(rval)} to ${mkString(lval)}"
-  ),
+  genIndexed("sw", T1, T0, 0),
   genPush(T1) // push RHS back onto stack for future use
 )
 
@@ -230,7 +224,7 @@ def codeGen(lval: Location): String =
   lval match
     case Var(i, name) =>
       combine(
-        if lval.sym.isGlobal then generate("lw", T0, s"_$name")
+        if lval.sym.isGlobal then genInst("lw", T0, s"_$name")
         else genIndexed("lw", T0, FP, lval.sym.offset, s"load value of $name"),
         genPush(T0)
       )
@@ -244,7 +238,7 @@ def loadAddr(lval: Location): String =
       val sym = lval.sym
       combine(
         if sym.isGlobal
-        then generate("la", T0, s"_$name")
+        then genInst("la", T0, s"_$name")
         else genIndexed("la", T0, FP, sym.offset),
         genPush(T0)
       ) // TODO: check this works
@@ -253,9 +247,9 @@ def loadAddr(lval: Location): String =
 inline def genCall(inline name: String, inline args: Seq[Expr]): String =
   // precall
   val a1 = args.reverse.map(codeGen).mkString("\n")
-  val jal = generate("jal", s"_$name") // gen JAL
+  val jal = genInst("jal", s"_$name") // gen JAL
   // post call
-  val mov = generate("add", SP, SP, s"${args.length * 4}")
+  val mov = genInst("add", SP, SP, s"${args.length * 4}")
   val a2 = genPush(V0)
   combine(a1, jal, mov, a2)
 
@@ -270,13 +264,10 @@ inline def genStr(value: String): String =
         lab + ":\t.asciiz " + s"\"$value\"",
         "\t.text"
       )
-      // s"""|${"\t"}.data
-      //     |$lab:${"\t"}.asciiz "$value"
-      //     |${"\t"}.text""".stripMargin
     else ""
   combine(
     str,
-    generateComment(
+    genWithComment(
       "la",
       "load address of string literal",
       T0,
@@ -284,56 +275,57 @@ inline def genStr(value: String): String =
     ),
     genPush(T0)
   )
+
+// general helper functions
 inline def genPush(inline value: String): String =
   combine(
     genIndexed("sw", value, SP, 0, s"PUSH $value"),
-    generate("subu", SP, SP, "4")
+    genInst("subu", SP, SP, "4")
   )
 
 inline def genPop(inline value: String): String =
   combine(
     genIndexed("lw", value, SP, 4, s"POP to $value"),
-    generate("addu", SP, SP, "4")
+    genInst("addu", SP, SP, "4")
   )
 
-final val MAXLEN = 4
+final inline val MAXLEN = 4
 
-def genIndexed(
-    op: String,
-    a1: String,
-    a2: String,
-    ind: Int,
-    comment: String = ""
+inline def genIndexed(
+    inline op: String,
+    inline a1: String,
+    inline a2: String,
+    inline ind: Int,
+    inline comment: String = ""
 ): String =
   val space = " " * (MAXLEN - op.length + 2)
   s"\t$op$space$a1, $ind($a2)\t\t# $comment"
 
-private def nextLabel(): String =
+private inline def nextLabel(): String =
   labelCounter += 1
   s".L$labelCounter"
 
-inline def genLabel(inline lab: String, cmt: String = ""): String =
-  s"$lab: ${if cmt != "" then "t" + cmt else ""}"
+inline def genLabel(inline lab: String, inline cmt: String = ""): String =
+  s"$lab:\t\t${if cmt != "" then "# " + cmt else ""}"
 
-inline def generateComment(
+inline def genWithComment(
     inline op: String,
-    com: String,
-    ops: String*
+    inline com: String,
+    inline ops: String*
 ): String =
   val space = " " * (MAXLEN - op.length + 2)
   s"\t$op$space${ops.mkString(", ")}\t\t# ${com}"
-inline def generate(inline op: String, ops: String*): String =
+inline def genInst(inline op: String, ops: String*): String =
   val space = " " * (MAXLEN - op.length + 2)
   s"\t$op$space${ops.mkString(", ")}"
 
 inline def combine(inline op: String, inline op2: String): String = s"$op\n$op2"
-inline def combine(ops: String*): String = ops.filter(_.nonEmpty).mkString("\n")
-
-val SP = "$sp"
-val FP = "$fp"
-val RA = "$ra"
-val A0 = "$a0"
-val V0 = "$v0"
-val T0 = "$t0"
-val T1 = "$t1"
-val Z = "$zero"
+inline def combine(inline ops: String*): String = ops.filter(_.nonEmpty).mkString("\n")
+// useful registers
+inline val SP = "$sp"
+inline val FP = "$fp"
+inline val RA = "$ra"
+inline val A0 = "$a0"
+inline val V0 = "$v0"
+inline val T0 = "$t0"
+inline val T1 = "$t1"

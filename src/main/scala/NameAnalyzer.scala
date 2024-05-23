@@ -1,5 +1,4 @@
 package baselang;
-
 import scala.collection.mutable.{ListBuffer, Map}
 
 sealed trait Sym(val isGlobal: Boolean = false, var offset: Int = 0)
@@ -15,16 +14,18 @@ case class State(
 ):
   def pushScope(): Unit = vars += Map()
   def popScope(): Unit = vars.dropRightInPlace(1)
+  def enclose[T](body: => T): T =
+    pushScope()
+    val res = body
+    popScope()
+    res
   def +=(name: String, sym: Sym): Unit = vars.last += (name -> sym)
   def lookupGlobal(name: String): Option[Sym] =
-    vars.findLast(_.contains(name)) match
-      case Some(scope) => scope.get(name)
-      case None        => None
+    vars.findLast(_.contains(name)).flatMap(_.get(name))
   def lookupLocal(name: String): Option[Sym] = vars.last.get(name)
   def hasTuple(name: String): Boolean = tuples.contains(name)
   def getTuple(name: String): TupSym = tuples(name)
   def addTuple(tup: (String, TupSym)): Unit = tuples += tup
-  def mkLocal(name: String, sym: Sym): Unit = vars.last += (name -> sym)
   def nextVarOffset(): Int =
     offset -= 4
     offset
@@ -79,13 +80,13 @@ def analyze(stmt: Stmt, state: State): Seq[(String, Int)] =
 def analyze(expr: Expr, state: State): Seq[(String, Int)] =
   import Expr.*
   expr match
-    case Call(_, name, args) =>
-      analyzeLoc(name, state)._1 ++ args.flatMap(analyze(_, state))
+    case Call(_, name, args) => analyzeLoc(name, state)._1
+        ++ args.flatMap(analyze(_, state))
     case Loc(_, loc)           => analyzeLoc(loc, state)._1
     case UnOp(_, _, rhs)       => analyze(rhs, state)
     case BinOp(_, _, lhs, rhs) => analyze(lhs, state) ++ analyze(rhs, state)
     case Assign(_, lhs, rhs) => analyzeLoc(lhs, state)._1 ++ analyze(rhs, state)
-    case _                   => Nil // literals - trivially valid
+    case _                   => Nil
 
 // errors and linked symbol information information
 def analyzeLoc(
@@ -112,11 +113,9 @@ def analyzeLoc(
       case (err, _) => (err, None)
 
 def analyzeBlock(body: Body, state: State): Seq[(String, Int)] =
-  state.pushScope()
-  val res = body._1.foldLeft(Nil)(_ ++ process(_, state, false)._2)
-  val res2 = body._2.foldLeft(Nil)(_ ++ analyze(_, state))
-  state.popScope()
-  res ++ res2
+  state.enclose:
+    body._1.foldLeft(Nil)(_ ++ process(_, state, false)._2)
+      ++ body._2.foldLeft(Nil)(_ ++ analyze(_, state))
 
 def processDecl(decl: TopLevel, state: State): (Sym, Seq[(String, Int)]) =
   val buffer = ListBuffer[(String, Int)]()
@@ -133,36 +132,33 @@ def processDecl(decl: TopLevel, state: State): (Sym, Seq[(String, Int)]) =
       if state.lookupGlobal(str).isDefined then
         buffer += s"name '$name' already in use" -> name.ind
         badDefn = true
-      // get parameter types and push function signature (if no name conflict)
-      // get parameter offsets as well
-      val paramtypes = params.zipWithIndex.map { (x, i) =>
-        VarSym(x.ttype, false, 4 + 4 * i)
-      }
+      // get parameter types/offsets and push function signature (if no name conflict)
+      val paramtypes =
+        params.zipWithIndex.map((x, i) => VarSym(x.ttype, false, 4 + 4 * i))
       val nsym = FunSym(retType, paramtypes)
       name.sym = nsym
+      // push function signature into enclosing scope
       if !badDefn then state += (str, FunSym(retType, paramtypes))
-      state.pushScope()
-      // check that parameters are unique
-      // TODO: verify whether parameter shadowing is allowed
-      // additionally push
-      for case (
-          VarDecl.VDecl(t, Location.Var(i, n)),
-          ind
-        ) <- params.zipWithIndex
-      do
-        if state.lookupLocal(n).isDefined then
-          buffer += s"Variable (parameter) $n already declared" -> i
-        // TODO: check whether adding actual offset here is necessary
-        else state += (n, VarSym(t, false, 4 + 4 * ind))
-      state.offset = -4 // set offset for the function body to use
-      // setting as -4 so returning the result of -= yields the correct offset
-      val bodyErrors = analyzeBlock(body, state)
-      state.popScope()
+      val bodyErrors = state.enclose:
+        // check that parameters are unique and push into enclosed scope
+        for case (
+            VarDecl.VDecl(_, Location.Var(i, n)),
+            psym
+          ) <- params.zip(paramtypes)
+        do
+          if state.lookupLocal(n).isDefined
+          then buffer += s"Variable (parameter) $n already declared" -> i
+          else state += (n, psym)
+        // set offset for the function body to use (-4 so decr gives correct start of -8)
+        state.offset = -4
+        // adds another enclosing scope so shadowing is allowed
+        // TODO: change behavior if shadowing params is not allowed
+        analyzeBlock(body, state)
       if bodyErrors.nonEmpty then buffer ++= bodyErrors
       FunSym(retType, paramtypes)
     // ========================= Tuple declaration =========================
     case TopLevel.TupDecl(Location.Var(i, name), fields) =>
-      val local = Map[String, Sym]()
+      val local = Map[String, Sym]() // local field env
       import Location.Var
       for field <- fields do
         val lb = ListBuffer[(String, Int)]()
@@ -170,19 +166,16 @@ def processDecl(decl: TopLevel, state: State): (Sym, Seq[(String, Int)]) =
           case VarDecl.VDecl(t, Var(i, n)) =>
             if t == PType.Void then lb += s"field $n cant be of type void" -> i
             if local.contains(n) then lb += s"field $n already declared" -> i
-            (n -> VarSym(
-              t,
-              false,
-              -1
-            )) // TODO: find proper offset when implementing tuple
+            (n -> VarSym(t, false, -1))
+          // TODO: find proper offset when implementing tuple
           case VarDecl.TupVDecl(Var(ti, t), Var(i, n)) =>
             if !state.hasTuple(t) then lb += s"Tuple $t not declared" -> ti
             if local.contains(n) then lb += s"field $n already declared" -> i
             (n -> TupVarSym(t))
         if lb.nonEmpty then buffer ++= lb else local += mapping
       val sym = TupSym(local)
-      if state.hasTuple(name) then
-        buffer += s"Tuple $name already declared" -> i
+      if state.hasTuple(name)
+      then buffer += s"Tuple $name already declared" -> i
       else state.addTuple(name -> sym)
       sym
   (sym, buffer.toList)

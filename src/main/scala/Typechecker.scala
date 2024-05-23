@@ -7,6 +7,8 @@ enum VType:
   case Fun(retType: VType, params: Seq[VType])
   case Tup(name: String)
 
+type ExpRes = (VType, Seq[(String, Int)])
+
 extension (tt: PType)
   def toVType: VType =
     import PType.*
@@ -44,7 +46,8 @@ def checkBlock(
     s: State
 ): (Seq[(String, Int)], Boolean) = body._2.foldLeft((Nil, false)):
   case ((errs, ret), stmt) =>
-    val (e, r) = typecheck(stmt, fun, s); (errs ++ e, ret || r)
+    val (e, r) = typecheck(stmt, fun, s)
+    (errs ++ e, ret || r)
 
 // for statements, pass the embedded fuction name (for return statement)
 def typecheck(
@@ -101,11 +104,10 @@ def typecheck(
         (errs :+ "Decrementing non-integer location" -> loc.ind, false)
       else (errs, false)
 
+// expects that two types match or one is an error already
 def badType(exp: VType, act: VType): Boolean =
-  if exp == act || exp == VType.Error then false
+  if exp == act || act == VType.Error then false
   else true
-
-type ExpRes = (VType, Seq[(String, Int)])
 
 def checkCall(fn: Location, args: Seq[Expr], s: State): ExpRes =
   import VType.*, Expr.*
@@ -128,7 +130,7 @@ def checkCall(fn: Location, args: Seq[Expr], s: State): ExpRes =
                 (s"Argument type mismatch at $i", args(i).ind)
           (Error, nerrs ++ mismatches)
       case _ =>
-        (Error, nerrs :+ s"Calling non-function ${mkString(fn)}" -> fn.ind)
+        (Error, nerrs :+ s"Calling non-function ${Unparse(fn)}" -> fn.ind)
 
 // typecheck expression
 def typecheck(expr: Expr, s: State): ExpRes =
@@ -143,11 +145,12 @@ def typecheck(expr: Expr, s: State): ExpRes =
       val (t, errs) = typecheck(rhs, s)
       if t == Error then (Error, errs)
       else
+        import UnaryOp.*
         op match
-          case UnaryOp.Neg =>
+          case Neg =>
             if t == Integer then (Integer, errs)
             else (Error, errs :+ "Negating non-integer" -> rhs.ind)
-          case UnaryOp.Not =>
+          case Not =>
             if t == Logical then (Logical, errs)
             else (Error, errs :+ "logical not on non-logical" -> rhs.ind)
     case BinOp(_, op, lhs, rhs) =>
@@ -157,7 +160,12 @@ def typecheck(expr: Expr, s: State): ExpRes =
       else
         import BinaryOp.*
         val errs = ListBuffer[(String, Int)]()
-        inline def checkOp(exp: VType, res: VType, err: String): ExpRes =
+        // check that left and right match expected type, and give corresp. errors if mismatch
+        inline def checkOp(
+            inline exp: VType,
+            inline res: VType,
+            inline err: String
+        ): ExpRes =
           if lt == exp && rt == exp then (res, le ++ re)
           else
             if badType(lt, exp) then errs += err -> lhs.ind

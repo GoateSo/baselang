@@ -2,16 +2,7 @@ package baselang;
 
 import fastparse.*, SingleLineWhitespace.*
 
-inline def index[$: P, T](inline p: P[T]): P[(Int, T)] = P(Index ~ p)
-
-def id[$: P]: P[Location.Var] =
-  import NoWhitespace.*
-  index(ident).map(Location.Var.apply)
-
-def program[$: P]: P[Seq[TopLevel]] =
-  import MultiLineWhitespace.*
-  Start ~ decl.rep ~ End
-
+// get line and column number from index and a given program
 def lineCol(index: Int, input: String): (Int, Int) =
   val relevant = input.take(index)
   val lines = relevant.count(_ == '\n') + 1
@@ -19,12 +10,21 @@ def lineCol(index: Int, input: String): (Int, Int) =
   val col = index - lastNL
   (lines, col)
 
-// top level declarations
-def decl[$: P]: P[TopLevel] =
+inline def index[$: P, T](inline p: P[T]): P[(Int, T)] = P(Index ~ p)
+
+def id[$: P]: P[Location.Var] = // identifier (decorated)
+  import NoWhitespace.*
+  index(ident).map(Location.Var.apply)
+
+def program[$: P]: P[Seq[TopLevel]] = // program
+  import MultiLineWhitespace.*
+  Start ~ decl.rep ~ End
+
+def decl[$: P]: P[TopLevel] = // top level declarations
   import TopLevel.*
   def param[$: P]: P[VarDecl.VDecl] = (typepar ~ id).map(VarDecl.VDecl.apply)
   def fundecl[$: P]: P[TopLevel] =
-    import MultiLineWhitespace.*, Location.Var
+    import MultiLineWhitespace.*
     (typepar ~/ id ~/ "{" ~ param.rep(sep = ",") ~ "}" ~ block)
       .map(FunDecl.apply)
   def tupdecl[$: P]: P[TopLevel] =
@@ -34,11 +34,11 @@ def decl[$: P]: P[TopLevel] =
   P((vdecl.map(VDecl.apply) | fundecl | tupdecl) ~ com.?)
 
 // statements and blocks
-def com[$: P]: P[Unit] =
+def com[$: P]: P[Unit] = // comments
   import NoWhitespace.*
   P(("$" | "!!") ~ CharsWhile(_ != '\n').rep ~ "\n")
 
-def ifstmt[$: P]: P[Stmt] =
+def ifstmt[$: P]: P[Stmt] = // if statement
   import Stmt.*, MultiLineWhitespace.*
   ("if" ~ expr ~ block ~ ("else" ~ block).?).map(If.apply)
 
@@ -55,7 +55,7 @@ def stmt[$: P]: P[Stmt] =
       | ((assign | call) ~ ".").map(ExprStmt.apply)
   ) ~ com.?
 
-def vdecl[$: P]: P[VarDecl] =
+def vdecl[$: P]: P[VarDecl] = // variable declaration
   import MultiLineWhitespace.*, VarDecl.*
   def tuple = ("tuple" ~ id ~ id ~ "." ~ com.?) map (TupVDecl.apply)
   def variable = (typepar ~ id ~ "." ~ com.?) map (VDecl.apply)
@@ -63,32 +63,30 @@ def vdecl[$: P]: P[VarDecl] =
 
 private inline def list[$: P, T](inline p: P[T]): P[Seq[T]] =
   import MultiLineWhitespace.*
-  (p | com).rep.map(_.flatMap {
+  (p | com).rep.map(_.flatMap:
     case x: T => Seq(x)
     case _    => Nil
-  })
+  )
 
-def block[$: P]: P[Body] =
+def block[$: P]: P[Body] = // general block parser
   import MultiLineWhitespace.*
   P("[" ~ list(vdecl) ~ list(stmt) ~ "]" ~ com.?)
 
-// expressions
 import Expr.*
+// expressions
 def expr[$: P]: P[Expr] = assign | or
 def assign[$: P]: P[Expr] =
   (loc ~ "=" ~ expr) map ((l, r) => Assign(l.ind, l, r))
-def or[$: P]: P[Expr] = binop(and, CharIn("|").!, and)
-def and[$: P]: P[Expr] = binop(compare, CharIn("&").!, compare)
+def or[$: P]: P[Expr] = binop(and, CharIn("|").!)
+def and[$: P]: P[Expr] = binop(compare, CharIn("&").!)
 def compare[$: P]: P[Expr] =
-  binop(addsub, StringIn("==", "~=", "<", ">", "<=", ">=").!, addsub)
-def addsub[$: P]: P[Expr] = binop(muldiv, CharIn("+\\-").!, muldiv)
-def muldiv[$: P]: P[Expr] = binop(unary, CharIn("*/").!, unary)
-
+  binop(addsub, StringIn("==", "~=", "<", ">", "<=", ">=").!)
+def addsub[$: P]: P[Expr] = binop(muldiv, CharIn("+\\-").!)
+def muldiv[$: P]: P[Expr] = binop(unary, CharIn("*/").!)
 def unary[$: P]: P[Expr] =
   "-" ~ unary.map(e => UnOp(e.ind, UnaryOp.Neg, e))
     | "~" ~ unary.map(e => UnOp(e.ind, UnaryOp.Not, e))
     | term
-
 def term[$: P]: P[Expr] =
   index("True").map((x, _) => LogiLit(x, true))
     | index("False").map((x, _) => LogiLit(x, false))
@@ -97,19 +95,16 @@ def term[$: P]: P[Expr] =
     | "(" ~ expr ~ ")"
     | call
     | loc.map(x => Loc(x.ind, x))
-
-def string[$: P] = 
+def string[$: P] =
   import NoWhitespace.*
   index("\"" ~ CharPred(_ != '"').rep.! ~ "\"")
 
 def call[$: P]: P[Expr] =
   (id ~ "(" ~ expr.rep(sep = ",") ~ ")").map((a, b) => Call(a.ind, a, b))
 
-def typepar[$: P]: P[PType] = P("void" | "integer" | "logical").!.map:
-  case "void"    => PType.Void
-  case "integer" => PType.Integer
-  case "logical" => PType.Logical
-
+def typepar[$: P]: P[PType] =
+  import PType.*
+  P("void" >> Void | "integer" >> Integer | "logical" >> Logical)
 enum Temp:
   case Tmp(ind: Int, name: String) extends Temp
   case TmpTuple(ind: Int, lhs: Tmp, rhs: Temp) extends Temp
@@ -119,6 +114,7 @@ private def tloc[$: P]: P[Temp] =
   (index(ident) ~ ":" ~ tloc).map((i, s, l) => TmpTuple(i, Tmp(i, s), l))
     | index(ident).map(Tmp.apply)
 
+// convert between the right recursive Temp and left recursive Location
 private def toLocation(t: Temp): Location =
   import Temp.*, Location.*
   def go(t: Temp): Location = t match
@@ -133,7 +129,7 @@ private def toLocation(t: Temp): Location =
 def loc[$: P]: P[Location] = tloc.map(toLocation)
 
 // lexical token parsers
-inline def token[$: P](inline s: String): P[String] = P(StringIn(s).!)
+inline def token[$: P](inline s: String): P[String] = P(s.!)
 
 def number[$: P] =
   import NoWhitespace.*
@@ -146,22 +142,13 @@ def ident[$: P] =
 // helper functions
 extension [$: P, T](p: P[T]) def >>[V](v: => V): P[V] = p.map(_ => v)
 
+// parse left associative binary operators
 inline def binop[$: P](
     inline subexp: P[Expr],
-    inline ops: P[String],
-    inline alt: P[Expr]
-): P[Expr] = (alt ~ (ops ~/ subexp).rep).map((exp, rhss) =>
+    inline ops: P[String]
+): P[Expr] = (subexp ~ (ops ~/ subexp).rep).map((exp, rhss) =>
   rhss.foldLeft(exp):
     case (lhs, (op, rhs)) => BinOp(lhs.ind, toBinop(op), lhs, rhs)
-)
-
-inline def binopR[$: P](
-    inline subexp: P[Expr],
-    inline ops: P[String],
-    inline alt: P[Expr]
-): P[Expr] = ((subexp ~ ops).rep ~ alt).map((lhss, exp) =>
-  lhss.foldRight(exp):
-    case ((lhs, op), rhs) => BinOp(lhs.ind, toBinop(op), lhs, rhs)
 )
 
 import BinaryOp.*

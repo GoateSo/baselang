@@ -27,7 +27,7 @@ def formatErr(err: (String, Int), program: String): String =
             val errs2 = typecheck(value, state)
             if errs2.isEmpty then
               println("Typechecking successful")
-              os.write(wd / s"${cur.dropRight(5)}.s", codeGen(value))
+              os.write.over(wd / s"${cur.dropRight(5)}.s", codeGen(value))
               println(s"wrote generated assembly code to ${cur.dropRight(5)}.s")
             else errs2.map(formatErr(_, file)).foreach(println)
           else errs.map(formatErr(_, file)).foreach(println)
