@@ -7,7 +7,7 @@ enum VType:
   case Fun(retType: VType, params: Seq[VType])
   case Tup(name: String)
 
-type ExpRes = (VType, Seq[(String, Int)])
+type ExpRes = (VType, ErrList)
 
 extension (tt: PType)
   def toVType: VType =
@@ -21,17 +21,17 @@ extension (sym: Sym)
   def toVType: VType =
     import VType.*
     sym match
-      case VarSym(ttype, _, _) => ttype.toVType
-      case TupVarSym(ttype)    => Tup(ttype)
-      case FunSym(ret, params) => Fun(ret.toVType, params.map(_.toVType))
-      case TupSym(fields)      => Error
-      case null                => Error
+      case VarSym(ttype, _, _, _)    => ttype.toVType
+      case TupVarSym(ttype, _, _, _, _) => Tup(ttype)
+      case FunSym(ret, params)       => Fun(ret.toVType, params.map(_.toVType))
+      case TupSym(fields, _)         => Error
+      case null                      => Error
 
-def typecheck(prog: Seq[TopLevel], s: State): Seq[(String, Int)] =
+def typecheck(prog: Seq[TopLevel], s: State): ErrList =
   prog.foldLeft(Nil)(_ ++ typecheck(_, s))
 
 // for top level declarations (i.e. only function declarations)
-def typecheck(tdecl: TopLevel, s: State): Seq[(String, Int)] = tdecl match
+def typecheck(tdecl: TopLevel, s: State): ErrList = tdecl match
   case TopLevel.FunDecl(retType, name, params, body) =>
     val (errs, ret) = checkBlock(body, name.sym.asInstanceOf[FunSym], s)
     if retType != PType.Void && !ret then
@@ -54,21 +54,21 @@ def typecheck(
     stmt: Stmt,
     fun: FunSym,
     s: State
-): (Seq[(String, Int)], Boolean) =
+): (ErrList, Boolean) =
   import Stmt.*, VType.*
-  def checkCond(cond: Expr): Seq[(String, Int)] =
+  def checkCond(cond: Expr): ErrList =
     val (t, cerrs) = typecheck(cond, s)
     val terr =
       if t != Logical then Seq("Non-logical condition(1)" -> cond.ind) else Nil
     cerrs ++ terr
   stmt match
     case If(cond, thenStmt, elseStmt) =>
-      val (t, cerrs) = typecheck(cond, s)
+      val (t, cerrs)       = typecheck(cond, s)
       val (thenErrs, ret1) = checkBlock(thenStmt, fun, s)
       val (elseErrs, ret2) = elseStmt.fold((Nil, false))(checkBlock(_, fun, s))
       (cerrs ++ checkCond(cond) ++ thenErrs ++ elseErrs, ret1 || ret2)
     case While(cond, body) =>
-      val (t, cerrs) = typecheck(cond, s)
+      val (t, cerrs)  = typecheck(cond, s)
       val (errs, ret) = checkBlock(body, fun, s)
       (cerrs ++ checkCond(cond) ++ errs, ret)
     case Return(value) =>
@@ -95,13 +95,11 @@ def typecheck(
       (nerrs, false)
     case Incr(loc) =>
       val (t, errs) = typecheck(loc, s)
-      if t != Integer then
-        (errs :+ "Incrementing non-integer location" -> loc.ind, false)
+      if t != Integer then (errs :+ "Incrementing non-integer location" -> loc.ind, false)
       else (errs, false)
     case Decr(loc) =>
       val (t, errs) = typecheck(loc, s)
-      if t != Integer then
-        (errs :+ "Decrementing non-integer location" -> loc.ind, false)
+      if t != Integer then (errs :+ "Decrementing non-integer location" -> loc.ind, false)
       else (errs, false)
 
 // expects that two types match or one is an error already
@@ -111,9 +109,9 @@ def badType(exp: VType, act: VType): Boolean =
 
 def checkCall(fn: Location, args: Seq[Expr], s: State): ExpRes =
   import VType.*, Expr.*
-  val (funtype, ferr) = typecheck(fn, s)
+  val (funtype, ferr)   = typecheck(fn, s)
   val (argTypes, perrs) = args.map(typecheck(_, s)).unzip
-  val nerrs = ferr ++ perrs.flatten
+  val nerrs             = ferr ++ perrs.flatten
   if funtype == Error then (Error, ferr)
   else
     funtype match

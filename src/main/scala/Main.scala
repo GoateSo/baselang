@@ -9,7 +9,7 @@ def formatErr(err: (String, Int), program: String): String =
   val (r, c) = lineCol(err._2, program)
   s"$r:$c\t****ERROR**** ${err._1}"
 
-@main def hello(): Unit =
+@main def main: Unit =
   var cur = ""
   println("Enter a file to compile (or 'exit' to quit):")
   while

@@ -28,7 +28,7 @@ But deviates from the original specs in some cases:
 
 ## To be completed
 
-- adding proper code generation for tuples (this was not a requirement for the course)
+- adding proper code generation for tuples (this was not a requirement for the course) (tentatively finished)
 - making a proper REPL (most likely an AST walking interpreter) instead of having a faux loop that just serves as a frontend for compilation
 - fixing any bugs that arise. Although I have tested against my existing code, those tests certainly aren't thorough enough to catch all bugs present.
 - optimizing the code produced by the compiler

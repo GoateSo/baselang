@@ -8,28 +8,25 @@ var interned = Map[String, String]()
 def codeGen(program: Seq[TopLevel]): String =
   labelCounter = 0
   interned = Map()
-  program.map(codeGen).mkString("\n")
+  program.map(codeGen).filter(_ != "").mkString("\n")
 
 def codeGen(tdecl: TopLevel): String =
   import TopLevel.*
   tdecl match
     case FunDecl(ret, name, ps, bdy) => genFundecl(ret, name, ps, bdy)
-    case VDecl(vdecl)                => genGlobal(vdecl)
-    case TupDecl(name, fields)       => ???
+    case VarDec(vdecl)               => genGlobal(vdecl)
+    case TupDecl(name, fields)       => "" // tuple decls are basically just typedefs
 
 def genGlobal(vdecl: VarDecl): String =
   import VarDecl.*
-  vdecl match
-    case VDecl(pt, vd) =>
-      s"""|${"\t"}.data
-          |${"\t"}.align 2
-          |_${vd.name}:${"\t"}.space 4""".stripMargin
-    case TupVDecl(tt, td) => ???
+  s"""|${"\t"}.data
+      |${"\t"}.align 2
+      |_${vdecl.name.name}:${"\t"}.space ${vdecl.size}""".stripMargin
 
 def genFundecl(
     retType: PType,
     name: Location.Var,
-    params: Seq[VarDecl.VDecl],
+    params: Seq[VarDecl.PrimDecl],
     body: Body
 ): String =
   val fname = name.name
@@ -108,7 +105,7 @@ def codeGen(stmt: Stmt, fname: String): String =
       combine(temp, rest)
     case While(cond, body) =>
       val lstart = nextLabel()
-      val lend = nextLabel()
+      val lend   = nextLabel()
       // eval condition
       combine(
         genLabel(lstart, "while loop start"),
@@ -152,8 +149,8 @@ def codeGen(stmt: Stmt, fname: String): String =
 def codeGen(expr: Expr): String =
   import Expr.*
   expr match
-    case IntLit(i, value)  => combine(genInst("li", T0, s"$value"), genPush(T0))
-    case LogiLit(i, value) => codeGen(IntLit(i, if value then 1 else 0))
+    case IntLit(i, value)       => combine(genInst("li", T0, s"$value"), genPush(T0))
+    case LogiLit(i, value)      => codeGen(IntLit(i, if value then 1 else 0))
     case StringLit(i, value)    => genStr(value)
     case Loc(i, loc)            => codeGen(loc)
     case Call(i, name, args)    => genCall(name.name, args)
@@ -229,28 +226,67 @@ def codeGen(lval: Location): String =
         genPush(T0)
       )
     case Tuple(i, lhs, rhs) =>
-      throw Exception("attempted to get value associated with tuple")
+      combine(
+        loadAddr(lval), // load address of tuple into memory
+        genPop(T0), // pop address into T0
+        // load value at the indexed location
+        genIndexed("lw", T0, T0, 0),
+        genPush(T0)
+      )
+    // throw Exception("attempted to get value associated with tuple")
+
+def getRoot(lval: Location): Location.Var =
+  import Location.*
+  lval match
+    case l: Var             => l
+    case Tuple(i, lhs, rhs) => getRoot(lhs)
+
+// TODO: check this works
+def getOffset(lval: Location): Int =
+  import Location.*
+  lval match
+    case Var(i, name) => 0 // TODO check this (base case)
+    case Tuple(i, lhs, rhs) =>
+      val leftOffset = getOffset(lhs)
+      lhs.sym match
+        case TupVarSym(ttype, tup, _, _, _) =>
+          val right       = tup.fields(rhs.name)
+          val localOffset = right.offset
+          leftOffset + localOffset
+        case _ => error(s"internal err - illegal tuple var type ${lhs.sym}")
+
 // get associated memory address
 def loadAddr(lval: Location): String =
   import Location.*
+  val sym = lval.sym
   lval match
     case Var(i, name) =>
-      val sym = lval.sym
       combine(
         if sym.isGlobal
         then genInst("la", T0, s"_$name")
         else genIndexed("la", T0, FP, sym.offset),
         genPush(T0)
       ) // TODO: check this works
-    case Tuple(i, lhs, rhs) => ???
+    case Tuple(i, lhs, rhs) =>
+      val root    = getRoot(lval)
+      val rootSym = root.sym
+      // T0 should contain the indexed into the tuple
+      combine(
+        if sym.isGlobal // load tuple address into memory
+        then genInst("la", T0, s"_${root.name}")
+        else genIndexed("la", T0, FP, sym.offset),
+        // find and then add the correct offset
+        genInst("addi", T0, T0, s"${getOffset(lval)}"),
+        genPush(T0)
+      )
 
 inline def genCall(inline name: String, inline args: Seq[Expr]): String =
   // precall
-  val a1 = args.reverse.map(codeGen).mkString("\n")
+  val a1  = args.reverse.map(codeGen).mkString("\n")
   val jal = genInst("jal", s"_$name") // gen JAL
   // post call
   val mov = genInst("add", SP, SP, s"${args.length * 4}")
-  val a2 = genPush(V0)
+  val a2  = genPush(V0)
   combine(a1, jal, mov, a2)
 
 inline def genStr(value: String): String =
@@ -315,12 +351,14 @@ inline def genWithComment(
 ): String =
   val space = " " * (MAXLEN - op.length + 2)
   s"\t$op$space${ops.mkString(", ")}\t\t# ${com}"
+
 inline def genInst(inline op: String, ops: String*): String =
   val space = " " * (MAXLEN - op.length + 2)
   s"\t$op$space${ops.mkString(", ")}"
 
 inline def combine(inline op: String, inline op2: String): String = s"$op\n$op2"
-inline def combine(inline ops: String*): String = ops.filter(_.nonEmpty).mkString("\n")
+inline def combine(inline ops: String*): String =
+  ops.filter(_.nonEmpty).mkString("\n")
 // useful registers
 inline val SP = "$sp"
 inline val FP = "$fp"

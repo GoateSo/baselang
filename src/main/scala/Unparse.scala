@@ -8,7 +8,7 @@ object Unparse:
   def apply(tdecl: TopLevel): String =
     import TopLevel.*
     tdecl match
-      case VDecl(vdecl) => apply(vdecl, 0)
+      case VarDec(vdecl) => apply(vdecl, 0)
       case FunDecl(retType, name, params, body) =>
         s"$retType ${apply(name)}(${params.map(apply).mkString(", ")}) [\n${apply(body, 1)}]\n"
       case TupDecl(name, fields) =>
@@ -17,13 +17,13 @@ object Unparse:
           + "}.\n"
 
   // unparse ast
-  def apply(param: VarDecl.VDecl): String =
-    val VarDecl.VDecl(ttype, name) = param
+  def apply(param: VarDecl.PrimDecl): String =
+    val VarDecl.PrimDecl(ttype, name) = param
     s"$ttype ${apply(name)}."
 
   def apply(vdecl: VarDecl, ilvl: Int): String = vdecl match
-    case VarDecl.VDecl(ttype, name) => s"$ttype ${apply(name)}.".indent(ilvl)
-    case VarDecl.TupVDecl(ttype, name) =>
+    case VarDecl.PrimDecl(ttype, name) => s"$ttype ${apply(name)}.".indent(ilvl)
+    case VarDecl.TupDecl(ttype, name) =>
       s"tuple ${apply(ttype)} ${apply(name)}.".indent(ilvl)
 
   def apply(b: Body, ilvl: Int): String =
@@ -71,12 +71,12 @@ object Unparse:
       s"${apply(lhs)}:${apply(rhs)}" ++ dispType(loc.sym)
 
   def dispType(s: Sym): String = s match
-    case VarSym(ttype, g, o) => s"<$ttype>($g, $o)"
-    case TupVarSym(ttype)    => s"<$ttype>"
+    case VarSym(ttype, g, o, _)        => s"<$ttype>($g, $o)"
+    case TupVarSym(ttype, _, _, _, sz) => s"<$ttype>(size = $sz)"
     case FunSym(retType, params) =>
       s"<${params.map(_.ttype.toString).mkString("(", ", ", ")")} -> $retType>"
-    case TupSym(fields) => "<internal error>"
-    case null           => ""
+    case TupSym(fields, _) => "<internal error>"
+    case null              => ""
 
   import UnaryOp.*, BinaryOp.*
   def apply(op: UnaryOp | BinaryOp): String = op match
