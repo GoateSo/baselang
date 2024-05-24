@@ -3,38 +3,35 @@ import scala.collection.mutable.Map
 
 object Codegen:
   var labelCounter = 0
+  import Location.*, TopLevel.*, VarDecl.*
   // map of strings to labels
   val interned = Map[String, String]()
-  // TODO: figure out local variable offsets from vardecls (do so in name analysis)
-  // convert code to MIPS assembly
+
+  /** Generates MIPS assembly code for a program
+    *
+    * @param program
+    *   parsed AST for program
+    * @return
+    *   string representation of the generated assembly code
+    */
   def apply(program: Seq[TopLevel]): String =
     interned.clear()
     program.map(codeGen).filter(_ != "").mkString("\n")
-    // ""
 
-  def codeGen(tdecl: TopLevel): String =
-    import TopLevel.*
-    tdecl match
-      case FunDecl(ret, name, ps, bdy) => genFundecl(ret, name, ps, bdy)
-      case VarDec(vdecl)               => genGlobal(vdecl)
-      case TupDecl(name, fields)       => "" // tuple decls are basically just typedefs
+  def codeGen(tdecl: TopLevel): String = tdecl match
+    case FunDecl(ret, name, ps, bdy) => genFundecl(ret, name, ps, bdy)
+    case VarDec(vdecl)               => genGlobal(vdecl)
+    case TupDecl(name, fields)       => "" // tuple decls are basically just typedefs
 
   def genGlobal(vdecl: VarDecl): String =
-    import VarDecl.*
     s"""|${"\t"}.data
         |${"\t"}.align 2
         |_${vdecl.name.name}:${"\t"}.space ${vdecl.size}""".stripMargin
 
-  def genFundecl(
-      retType: PType,
-      name: Location.Var,
-      params: Seq[VarDecl.PrimDecl],
-      body: Body
-  ): String =
+  def genFundecl(ret: PType, name: Var, params: Seq[PrimDecl], body: Body): String =
     val fname     = name.name
     val decls     = body._1
     val localSize = decls.map(_.size).sum
-    println(s"\n$fname's local size is: $localSize")
     val preamble = combine(
       "\t.text",
       if fname == "main"
@@ -174,7 +171,6 @@ object Codegen:
   )
 
   private def genShortCircuit(op: BinaryOp, lhs: String, rhs: Expr): String =
-    import BinaryOp.*
     val shortVal = Map(And -> "0", Or -> "1") // exit if false for and + exit if true for or
     val lab      = nextLabel()
     combine(
@@ -187,6 +183,7 @@ object Codegen:
       genLabel(lab), // short circuit label
       genPush(T0)
     )
+
   private val eagerOp: Map[BinaryOp, String] = Map( // map for eager operations
     Add -> genInst("add", T0, T0, T1),
     Sub -> genInst("sub", T0, T0, T1),
@@ -204,7 +201,6 @@ object Codegen:
     case And | Or => genShortCircuit(op, lhs, rhs)
     case _        => genEager(eagerOp(op), lhs, codeGen(rhs))
 
-  import BinaryOp.*
   def genAssign(lval: Location, rval: Expr): String = combine(
     codeGen(rval), // codegen into T1
     loadAddr(lval), // load to T0
@@ -216,75 +212,59 @@ object Codegen:
   )
 
   // get associated value
-  def codeGen(lval: Location): String =
-    import Location.*
-    lval match
-      case Var(i, name) =>
-        combine(
-          if lval.sym.isGlobal then genInst("lw", T0, s"_$name")
-          else genIndexed("lw", T0, FP, lval.sym.offset, s"load value of $name"),
-          genPush(T0)
-        )
-      case Tuple(i, lhs, rhs) =>
-        combine(
-          loadAddr(lval), // load address of tuple into memory
-          genPop(T0), // pop address into T0
-          // load value at the indexed location
-          genIndexed("lw", T0, T0, 0),
-          genPush(T0)
-        )
+  def codeGen(lval: Location): String = lval match
+    case Var(i, name) => combine(
+        if lval.sym.isGlobal then genInst("lw", T0, s"_$name")
+        else genIndexed("lw", T0, FP, lval.sym.offset, s"load value of $name"),
+        genPush(T0)
+      )
+    case Tuple(i, lhs, rhs) => combine(
+        loadAddr(lval), // load address of tuple into memory
+        genPop(T0), // pop address into T0
+        // load value at the indexed location
+        genIndexed("lw", T0, T0, 0),
+        genPush(T0)
+      )
 
   // get root of a tuple index (furthest left term)
-  private def getRoot(lval: Location): Location.Var =
-    import Location.*
-    lval match
-      case l: Var             => l
-      case Tuple(i, lhs, rhs) => getRoot(lhs)
+  private def getRoot(lval: Location): Var = lval match
+    case l: Var         => l
+    case Tuple(_, l, _) => getRoot(l)
 
   // get offset of a tuple indexing operation
-  private def getOffset(lval: Location): Int =
-    import Location.*
-    lval match
-      case Var(i, name) => 0 // TODO check this (base case)
-      case Tuple(i, lhs, rhs) =>
-        val leftOffset = getOffset(lhs)
-        lhs.sym match
-          case TupVarSym(ttype, tup, _) =>
-            val right       = tup.fields(rhs.name)
-            val localOffset = right.offset
-            leftOffset + localOffset
-          case _ => error(s"internal err - illegal tuple var type ${lhs.sym}")
+  private def getOffset(lval: Location): Int = lval match
+    case Var(i, name) => 0
+    case Tuple(i, lhs, rhs) =>
+      val leftOffset = getOffset(lhs)
+      lhs.sym match
+        case TupVarSym(ttype, tup, _) =>
+          val right       = tup.fields(rhs.name)
+          val localOffset = right.offset
+          leftOffset + localOffset
+        case _ => error(s"internal err - illegal tuple var type ${lhs.sym}")
 
   // get associated memory address
-  def loadAddr(lval: Location): String =
-    import Location.*
-    lval match
-      case Var(i, name) =>
-        val sym = lval.sym
-        println(s"offset of local var $name: ${sym.offset}")
-        combine(
-          if sym.isGlobal
-          then genInst("la", T0, s"_$name")
-          else genIndexed("la", T0, FP, sym.offset),
-          genPush(T0)
-        ) // TODO: check this works
-      case Tuple(i, lhs, rhs) =>
-        val root    = getRoot(lval)
-        val rootSym = root.sym
-        println(s"[offset of local tuple ${Unparse(root)}: ${rootSym.offset}")
-        println(s"[local offset of tup ind ${Unparse(lval)}: ${getOffset(lval)}")
-        println(s"calculated offset: ${rootSym.offset - getOffset(lval)}")
-        // T0 should contain the indexed into the tuple
-        combine(
-          if rootSym.isGlobal // load tuple address into memory
-          then genInst("la", T0, s"_${root.name}")
-          else
-            genIndexed("la", T0, FP, rootSym.offset, s"allocate tuple index ${Unparse(lval)}")
-          ,
-          // find and then add the correct offset
-          genInst("addi", T0, T0, s"-${getOffset(lval)}"),
-          genPush(T0)
-        )
+  def loadAddr(lval: Location): String = lval match
+    case Var(i, name) =>
+      val sym = lval.sym
+      combine(
+        if sym.isGlobal
+        then genInst("la", T0, s"_$name")
+        else genIndexed("la", T0, FP, sym.offset),
+        genPush(T0)
+      ) // TODO: check this works
+    case Tuple(i, lhs, rhs) =>
+      val root    = getRoot(lval)
+      val rootSym = root.sym
+      // T0 should contain the indexed into the tuple
+      combine(
+        if rootSym.isGlobal // load tuple address into memory
+        then genInst("la", T0, s"_${root.name}")
+        else genIndexed("la", T0, FP, rootSym.offset, s"allocate tuple index ${Unparse(lval)}"),
+        // find and then add the correct offset
+        genInst("addi", T0, T0, s"-${getOffset(lval)}"),
+        genPush(T0)
+      )
 
   inline def genCall(inline name: String, inline args: Seq[Expr]): String =
     // precall (note: args pushed in reverse order)
@@ -296,37 +276,33 @@ object Codegen:
     combine(a1, jal, mov, a2)
 
   inline def genStr(value: String): String =
-    val str =
+    val strLit =
       if !interned.contains(value)
       then
         val lab = nextLabel()
         interned(value) = lab
-        combine(
-          "\t.data",
-          lab + ":\t.asciiz " + s"\"$value\"",
-          "\t.text"
-        )
+        "\t.data\n"
+          ++ lab + ":\t.asciiz " + s"\"$value\"\n"
+          ++ "\t.text"
       else ""
     combine(
-      str,
+      strLit,
       genWithComment("la", "load strlit addr", T0, interned(value)),
       genPush(T0)
     )
 
-  // general helper functions
-  inline def genPush(inline value: String): String =
-    combine(
-      genIndexed("sw", value, SP, 0, s"PUSH $value"),
-      genInst("subu", SP, SP, "4")
-    )
-
-  inline def genPop(inline value: String): String =
-    combine(
-      genIndexed("lw", value, SP, 4, s"POP to $value"),
-      genInst("addu", SP, SP, "4")
-    )
-
+  // general helpers
   final inline val MAXLEN = 4
+
+  inline def genPush(inline value: String): String = combine(
+    genIndexed("sw", value, SP, 0, s"PUSH $value"),
+    genInst("subu", SP, SP, "4")
+  )
+
+  inline def genPop(inline value: String): String = combine(
+    genIndexed("lw", value, SP, 4, s"POP to $value"),
+    genInst("addu", SP, SP, "4")
+  )
 
   inline def genIndexed(
       inline op: String,

@@ -24,7 +24,7 @@ def formatErr(err: (String, Int), program: String): String =
           val (errs, state) = NameAnalyzer(State()).analyze(value)
           if errs.isEmpty then
             println("No errors found")
-            val errs2 = typecheck(value, state)
+            val errs2 = Typecheck(state)(value)
             if errs2.isEmpty then
               println("Typechecking successful")
               os.write.over(wd / s"${cur.dropRight(5)}.s", Codegen(value))

@@ -9,8 +9,8 @@ val toUnop = Map("-" -> Neg, "~" -> Not)
 
 enum BinaryOp:
   case Add, Sub, Mul, Div, Eq, Neq, Lt, Gt, Le, Ge, And, Or
-
 import BinaryOp.*
+
 val toBinop = Map(
   "+" -> Add,
   "-" -> Sub,
@@ -25,6 +25,8 @@ val toBinop = Map(
   "&" -> And,
   "|" -> Or
 )
+// converting back to strings
+val fromBinop = toBinop.map(_.swap)
 
 enum PType:
   case Void, Integer, Logical
@@ -58,15 +60,11 @@ enum Stmt:
 enum VarDecl(var size: Int = 0, val name: Var):
   case PrimDecl(ttype: PType, vname: Var) extends VarDecl(name = vname)
   case TVarDecl(ttype: Var, vname: Var) extends VarDecl(name = vname)
+import VarDecl.*
 
 enum TopLevel:
   case VarDec(val vdecl: VarDecl) extends TopLevel
-  case FunDecl(
-      retType: PType,
-      name: Var,
-      params: Seq[VarDecl.PrimDecl],
-      body: Body
-  ) extends TopLevel
+  case FunDecl(ret: PType, name: Var, params: Seq[PrimDecl], body: Body) extends TopLevel
   case TupDecl(name: Var, fields: Seq[VarDecl]) extends TopLevel
 
 type Pos  = (Int, Int)

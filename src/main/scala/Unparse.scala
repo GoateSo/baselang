@@ -1,6 +1,14 @@
 package baselang;
 
 object Unparse:
+  /** Converts a program in AST form back into text, including any type information added during
+    * analysis
+    *
+    * @param program
+    *   parsed AST for program
+    * @return
+    *   string representation of the program
+    */
   def apply(program: Seq[TopLevel]): String =
     program.map(apply).mkString
 
@@ -64,25 +72,14 @@ object Unparse:
 
   def dispType(s: Sym): String = s match
     case VarSym(ttype, _)       => s"<$ttype>"
-    case TupVarSym(ttype, t, _) => s"<$ttype>(size = ${t.size})"
+    case TupVarSym(ttype, t, _) => s"<$ttype>"
     case FunSym(ret, ps)        => s"<${ps.map(_.ttype).mkString("(", ", ", ")")} -> $ret>"
     case TupSym(fields, _)      => "<internal error>"
     case null                   => ""
 
   import UnaryOp.*, BinaryOp.*
-  def apply(op: UnaryOp | BinaryOp): String = op match
+  def apply(op: BinaryOp): String = fromBinop(op)
+  def apply(op: UnaryOp): String = op match
     case Neg => "-"
     case Not => "~"
-    case Add => "+"
-    case Sub => "-"
-    case Mul => "*"
-    case Div => "/"
-    case Eq  => "=="
-    case Neq => "~="
-    case Lt  => "<"
-    case Gt  => ">"
-    case Le  => "<="
-    case Ge  => ">="
-    case And => "&"
-    case Or  => "|"
 end Unparse

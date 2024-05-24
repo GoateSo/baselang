@@ -1,7 +1,8 @@
 package baselang
 import scala.collection.mutable.Map
 
-type ErrList = Seq[(String, Int)]
+type Err     = (String, Int)
+type ErrList = Seq[Err]
 
 def error(msg: String) = throw new Exception(msg)
 

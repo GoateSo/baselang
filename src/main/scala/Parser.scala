@@ -117,14 +117,12 @@ private def tloc[$: P]: P[Temp] =
 // convert between the right recursive Temp and left recursive Location
 private def toLocation(t: Temp): Location =
   import Temp.*, Location.*
-  def go(t: Temp): Location = t match
-    case TmpTuple(i, lhs, rhs) => go2(rhs, Var(i, lhs.name))
-    case Tmp(ind, name)        => Var(ind, name)
-  def go2(t: Temp, acc: Location): Location = t match
-    case TmpTuple(i, lhs, rhs) => go2(rhs, Tuple(i, acc, Var(i, lhs.name)))
+  def go(t: Temp, acc: Location): Location = t match
+    case TmpTuple(i, lhs, rhs) => go(rhs, Tuple(i, acc, Var(i, lhs.name)))
     case Tmp(ind, name)        => Tuple(ind, acc, Var(ind, name))
-  go(t)
-
+  t match
+    case TmpTuple(i, lhs, rhs) => go(rhs, Var(i, lhs.name))
+    case Tmp(ind, name)        => Var(ind, name)
 // turn from right recursive to left recursive
 def loc[$: P]: P[Location] = tloc.map(toLocation)
 
@@ -146,7 +144,6 @@ extension [$: P, T](p: P[T]) def >>[V](v: => V): P[V] = p.map(_ => v)
 inline def binop[$: P](
     inline subexp: P[Expr],
     inline ops: P[String]
-): P[Expr] = (subexp ~ (ops ~/ subexp).rep).map((exp, rhss) =>
+): P[Expr] = (subexp ~ (ops ~/ subexp).rep).map: (exp, rhss) =>
   rhss.foldLeft(exp):
     case (lhs, (op, rhs)) => BinOp(toBinop(op), lhs, rhs)
-)
