@@ -1,12 +1,12 @@
 # Baselang.scala
 
-A minimal implementation of the Base language compiler for [UW Madison CS536](https://pages.cs.wisc.edu/~hasti/cs536/) in scala. 
+A minimal implementation of the Base language compiler for [UW Madison CS536](https://pages.cs.wisc.edu/~hasti/cs536/) in Scala. 
 
-The parsing stage was implmented using [FastParse](https://com-lihaoyi.github.io/fastparse/), and the remaining stages were implemented manually, using the java program as a guide. 
+The parsing stage was implmented using [FastParse](https://com-lihaoyi.github.io/fastparse/), and the remaining stages were implemented manually, using the existing java program as a guide. 
 
-The compiler implementation explores a mixture of paradigms, leveraging functional parser combinators during parsing and recursive tree exploration with imperative state management during name analysis, type checking, and codegen. 
+The compiler implementation explores a mixture of paradigms, leveraging functional parser combinators during parsing and recursive tree exploration with imperative state management during name analysis, type checking, and code generation. 
 
-Overall, the project (as of 5/23/24) consists of 1083 lines of code spread over 6 main files, `AST.scala(144)`,`Codegen.scala(339)`,`Main.scala(36)`,`NameAnalyzer.scala(188)`,`Parser.scala(185)`, and `TypeChecker.scala(191)` compared to the ~3000 line megalith of an `ast.java` file in the original project (not counting any smaller helper files/ files for parser/lexer generation). 
+Overall, the project (as of 5/24/24) consists of 1087 lines of code spread over 9 main files, compared to the ~3000 line megalith of an `ast.java` file in the original project (not counting any smaller helper files/ files for parser/lexer generation). 
 
 ## Specifications
 
@@ -26,7 +26,7 @@ But deviates from the original specs in some cases:
 - spacing in the generated code isn't exactly the same -- didnt have the heart to wholly copy the provided codegen helper class.
 
 
-## To be completed
+## Enhancements
 
 - adding proper code generation for tuples (this was not a requirement for the course) (tentatively finished)
 - making a proper REPL (most likely an AST walking interpreter) instead of having a faux loop that just serves as a frontend for compilation
