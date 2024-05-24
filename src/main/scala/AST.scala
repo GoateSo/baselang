@@ -38,11 +38,11 @@ enum Expr(var ind: Int, var myType: VType = null):
   case IntLit(i: Int, value: Int) extends Expr(i)
   case LogiLit(i: Int, value: Boolean) extends Expr(i)
   case StringLit(i: Int, value: String) extends Expr(i)
-  case Loc(i: Int, loc: Location) extends Expr(i)
-  case Call(i: Int, name: Var, args: Seq[Expr]) extends Expr(i)
-  case UnOp(i: Int, op: UnaryOp, rhs: Expr) extends Expr(i)
-  case BinOp(i: Int, op: BinaryOp, lhs: Expr, rhs: Expr) extends Expr(i)
-  case Assign(i: Int, lhs: Location, rhs: Expr) extends Expr(i)
+  case Loc(loc: Location) extends Expr(loc.ind)
+  case Call(name: Var, args: Seq[Expr]) extends Expr(name.ind)
+  case UnOp(op: UnaryOp, rhs: Expr) extends Expr(rhs.ind)
+  case BinOp(op: BinaryOp, lhs: Expr, rhs: Expr) extends Expr(lhs.ind)
+  case Assign(lhs: Location, rhs: Expr) extends Expr(lhs.ind)
 
 enum Stmt:
   case If(cond: Expr, thenStmt: Body, elseStmt: Option[Body]) extends Stmt
@@ -54,9 +54,10 @@ enum Stmt:
   case Incr(loc: Location) extends Stmt
   case Decr(loc: Location) extends Stmt
 
+// TODO: move tuple creation to parsing, and add size field to Prim/TupDecl instead of doing so during name analysis
 enum VarDecl(var size: Int = 0, val name: Var):
   case PrimDecl(ttype: PType, vname: Var) extends VarDecl(name = vname)
-  case TupDecl(ttype: Var, vname: Var) extends VarDecl(name = vname)
+  case TVarDecl(ttype: Var, vname: Var) extends VarDecl(name = vname)
 
 enum TopLevel:
   case VarDec(val vdecl: VarDecl) extends TopLevel

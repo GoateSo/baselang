@@ -2,31 +2,6 @@ package baselang
 
 import scala.collection.mutable.ListBuffer
 
-enum VType:
-  case Error, Void, Integer, Logical, Str
-  case Fun(retType: VType, params: Seq[VType])
-  case Tup(name: String)
-
-type ExpRes = (VType, ErrList)
-
-extension (tt: PType)
-  def toVType: VType =
-    import PType.*
-    tt match
-      case Void    => VType.Void
-      case Integer => VType.Integer
-      case Logical => VType.Logical
-
-extension (sym: Sym)
-  def toVType: VType =
-    import VType.*
-    sym match
-      case VarSym(ttype, _, _, _)    => ttype.toVType
-      case TupVarSym(ttype, _, _, _, _) => Tup(ttype)
-      case FunSym(ret, params)       => Fun(ret.toVType, params.map(_.toVType))
-      case TupSym(fields, _)         => Error
-      case null                      => Error
-
 def typecheck(prog: Seq[TopLevel], s: State): ErrList =
   prog.foldLeft(Nil)(_ ++ typecheck(_, s))
 
@@ -40,32 +15,27 @@ def typecheck(tdecl: TopLevel, s: State): ErrList = tdecl match
   case _ => Nil
 
 // typecheck a block and return errors and whether it returns
-def checkBlock(
-    body: Body,
-    fun: FunSym,
-    s: State
-): (Seq[(String, Int)], Boolean) = body._2.foldLeft((Nil, false)):
-  case ((errs, ret), stmt) =>
-    val (e, r) = typecheck(stmt, fun, s)
-    (errs ++ e, ret || r)
+def checkBlock(body: Body, fun: FunSym, s: State): (ErrList, Boolean) =
+  body._2.foldLeft((Nil, false)):
+    case ((errs, ret), stmt) =>
+      val (e, r) = typecheck(stmt, fun, s)
+      (errs ++ e, ret || r)
 
 // for statements, pass the embedded fuction name (for return statement)
-def typecheck(
-    stmt: Stmt,
-    fun: FunSym,
-    s: State
-): (ErrList, Boolean) =
+def typecheck(stmt: Stmt, fun: FunSym, s: State): (ErrList, Boolean) =
   import Stmt.*, VType.*
   def checkCond(cond: Expr): ErrList =
     val (t, cerrs) = typecheck(cond, s)
     val terr =
-      if t != Logical then Seq("Non-logical condition(1)" -> cond.ind) else Nil
+      if t != Logical
+      then Seq("Non-logical condition" -> cond.ind)
+      else Nil
     cerrs ++ terr
   stmt match
     case If(cond, thenStmt, elseStmt) =>
       val (t, cerrs)       = typecheck(cond, s)
       val (thenErrs, ret1) = checkBlock(thenStmt, fun, s)
-      val (elseErrs, ret2) = elseStmt.fold((Nil, false))(checkBlock(_, fun, s))
+      val (elseErrs, ret2) = elseStmt.fold(Nil, false)(checkBlock(_, fun, s))
       (cerrs ++ checkCond(cond) ++ thenErrs ++ elseErrs, ret1 || ret2)
     case While(cond, body) =>
       val (t, cerrs)  = typecheck(cond, s)
@@ -104,8 +74,7 @@ def typecheck(
 
 // expects that two types match or one is an error already
 def badType(exp: VType, act: VType): Boolean =
-  if exp == act || act == VType.Error then false
-  else true
+  exp != act && act != VType.Error
 
 def checkCall(fn: Location, args: Seq[Expr], s: State): ExpRes =
   import VType.*, Expr.*
@@ -137,9 +106,9 @@ def typecheck(expr: Expr, s: State): ExpRes =
     case IntLit(_, value)    => (Integer, Nil)
     case LogiLit(_, value)   => (Logical, Nil)
     case StringLit(_, value) => (Str, Nil)
-    case Loc(_, loc)         => typecheck(loc, s)
-    case Call(_, name, args) => checkCall(name, args, s)
-    case UnOp(_, op, rhs) =>
+    case Loc(loc)            => typecheck(loc, s)
+    case Call(name, args)    => checkCall(name, args, s)
+    case UnOp(op, rhs) =>
       val (t, errs) = typecheck(rhs, s)
       if t == Error then (Error, errs)
       else
@@ -151,7 +120,7 @@ def typecheck(expr: Expr, s: State): ExpRes =
           case Not =>
             if t == Logical then (Logical, errs)
             else (Error, errs :+ "logical not on non-logical" -> rhs.ind)
-    case BinOp(_, op, lhs, rhs) =>
+    case BinOp(op, lhs, rhs) =>
       val (lt, le) = typecheck(lhs, s)
       val (rt, re) = typecheck(rhs, s)
       if lt == Error && rt == Error then (Error, le ++ re)
@@ -181,7 +150,7 @@ def typecheck(expr: Expr, s: State): ExpRes =
               if lt == Integer || lt == Logical then (Logical, le ++ re)
               else (Error, le ++ re :+ "comp of non-primitive types" -> lhs.ind)
             else (Error, le ++ re :+ "Comparison of different types" -> lhs.ind)
-    case Assign(_, lhs, rhs) =>
+    case Assign(lhs, rhs) =>
       // TODO: add checks for function and tuple
       val (lt, le) = typecheck(lhs, s)
       val (rt, re) = typecheck(rhs, s)

@@ -21,13 +21,13 @@ def formatErr(err: (String, Int), program: String): String =
       fastparse.parse(file, program(_)) match
         case Success(value, index) =>
           println("parsing successful")
-          val (errs, state) = analyze(value)
+          val (errs, state) = NameAnalyzer(State()).analyze(value)
           if errs.isEmpty then
             println("No errors found")
             val errs2 = typecheck(value, state)
             if errs2.isEmpty then
               println("Typechecking successful")
-              os.write.over(wd / s"${cur.dropRight(5)}.s", codeGen(value))
+              os.write.over(wd / s"${cur.dropRight(5)}.s", Codegen(value))
               println(s"wrote generated assembly code to ${cur.dropRight(5)}.s")
             else errs2.map(formatErr(_, file)).foreach(println)
           else errs.map(formatErr(_, file)).foreach(println)

@@ -23,10 +23,10 @@ def program[$: P]: P[Seq[TopLevel]] = // program
 def decl[$: P]: P[TopLevel] = // top level declarations
   import TopLevel.*
   def param[$: P]: P[VarDecl.PrimDecl] =
-    (typepar ~ id).map(VarDecl.PrimDecl.apply)
+    (ptype ~ id).map(VarDecl.PrimDecl.apply)
   def fundecl[$: P]: P[TopLevel] =
     import MultiLineWhitespace.*
-    (typepar ~/ id ~/ "{" ~ param.rep(sep = ",") ~ "}" ~ block)
+    (ptype ~/ id ~/ "{" ~ param.rep(sep = ",") ~ "}" ~ block)
       .map(FunDecl.apply)
   def tupdecl[$: P]: P[TopLevel] =
     import MultiLineWhitespace.*
@@ -58,8 +58,8 @@ def stmt[$: P]: P[Stmt] =
 
 def vdecl[$: P]: P[VarDecl] = // variable declaration
   import MultiLineWhitespace.*, VarDecl.*
-  def tuple    = ("tuple" ~ id ~ id ~ "." ~ comment.?) map (TupDecl.apply)
-  def variable = (typepar ~ id ~ "." ~ comment.?) map (PrimDecl.apply)
+  def tuple    = ("tuple" ~ id ~ id ~ "." ~ comment.?) map (TVarDecl.apply)
+  def variable = (ptype ~ id ~ "." ~ comment.?) map (PrimDecl.apply)
   P(tuple | variable)
 
 private inline def list[$: P, T](inline p: P[T]): P[Seq[T]] =
@@ -76,15 +76,15 @@ def block[$: P]: P[Body] = // general block parser
 import Expr.*
 // expressions - seperated for precedence
 def expr[$: P]            = assign | or
-def assign[$: P]: P[Expr] = (loc ~ "=" ~ expr) map ((l, r) => Assign(l.ind, l, r))
-def or[$: P]              = binop(and, CharIn("|").!)
-def and[$: P]             = binop(compare, CharIn("&").!)
+def assign[$: P]: P[Expr] = (loc ~ "=" ~ expr) map (Assign.apply)
+def or[$: P]              = binop(and, "|".!)
+def and[$: P]             = binop(compare, "&".!)
 def compare[$: P]         = binop(addsub, StringIn("==", "~=", "<", ">", "<=", ">=").!)
 def addsub[$: P]: P[Expr] = binop(muldiv, CharIn("+\\-").!)
 def muldiv[$: P]: P[Expr] = binop(unary, CharIn("*/").!)
 def unary[$: P]: P[Expr] =
-  "-" ~ unary.map(e => UnOp(e.ind, UnaryOp.Neg, e))
-    | "~" ~ unary.map(e => UnOp(e.ind, UnaryOp.Not, e))
+  "-" ~ unary.map(UnOp(UnaryOp.Neg, _))
+    | "~" ~ unary.map(UnOp(UnaryOp.Not, _))
     | term
 def term[$: P]: P[Expr] = // term parser
   index("True").map((x, _) => LogiLit(x, true))
@@ -93,15 +93,15 @@ def term[$: P]: P[Expr] = // term parser
     | string.map(StringLit.apply)
     | "(" ~ expr ~ ")"
     | call
-    | loc.map(x => Loc(x.ind, x))
+    | loc.map(Loc.apply)
 def string[$: P] = // string literal parser
   import NoWhitespace.*
   index("\"" ~ CharPred(_ != '"').rep.! ~ "\"")
 
 def call[$: P]: P[Expr] = // function call parser
-  (id ~ "(" ~ expr.rep(sep = ",") ~ ")").map((a, b) => Call(a.ind, a, b))
+  (id ~ "(" ~ expr.rep(sep = ",") ~ ")").map(Call.apply)
 
-def typepar[$: P]: P[PType] = // type parser
+def ptype[$: P]: P[PType] = // type parser
   import PType.*
   P("void" >> Void | "integer" >> Integer | "logical" >> Logical)
 
@@ -148,5 +148,5 @@ inline def binop[$: P](
     inline ops: P[String]
 ): P[Expr] = (subexp ~ (ops ~/ subexp).rep).map((exp, rhss) =>
   rhss.foldLeft(exp):
-    case (lhs, (op, rhs)) => BinOp(lhs.ind, toBinop(op), lhs, rhs)
+    case (lhs, (op, rhs)) => BinOp(toBinop(op), lhs, rhs)
 )
